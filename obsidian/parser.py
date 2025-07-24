@@ -1,9 +1,10 @@
 # obsidian/parser.py - Core document parsing utilities
 
 import re
-import frontmatter
 from pathlib import Path
 from typing import Any
+
+import frontmatter
 
 
 def get_wikilinks(text: str) -> list[str]:
@@ -18,9 +19,9 @@ def clean_links(wikilinks: list[str], collect_aliases: bool = False) -> list[str
         raise NotImplementedError
     outv = []
     for link in wikilinks:
-        if '|' in link:
+        if "|" in link:
             try:
-                link, alias = link.split('|')
+                link, alias = link.split("|")
             except:
                 print(link)
                 raise
@@ -30,22 +31,22 @@ def clean_links(wikilinks: list[str], collect_aliases: bool = False) -> list[str
 
 class ObsDoc:
     """Represents a single Obsidian document."""
-    
+
     def __init__(self, title: str, raw: str, fpath: Path | str | None = None):
         self.title = title
         self.raw = raw
-        
+
         # Parse with python-frontmatter
         self.post = frontmatter.loads(raw)
         self.frontmatter = self.post.metadata
         self.body = self.post.content
-        
+
         # Use frontmatter title if available
-        if 'title' in self.frontmatter:
-            self.title = self.frontmatter['title']
-            
+        if "title" in self.frontmatter:
+            self.title = self.frontmatter["title"]
+
         self.links = clean_links(get_wikilinks(self.body))
-        self.tags = self.frontmatter.get('tags', [])
+        self.tags = self.frontmatter.get("tags", [])
         self.fpath = Path(fpath) if fpath else None
 
     @property
@@ -54,10 +55,10 @@ class ObsDoc:
         return self.title.lower()
 
     @classmethod
-    def from_path(cls, fpath: Path | str) -> 'ObsDoc':
+    def from_path(cls, fpath: Path | str) -> "ObsDoc":
         """Create ObsDoc from file path."""
         fpath = Path(fpath)
-        with fpath.open(encoding='utf-8') as f:
+        with fpath.open(encoding="utf-8") as f:
             try:
                 return cls(fpath.stem, f.read(), fpath=fpath)
             except Exception as e:
@@ -69,6 +70,7 @@ class ObsDoc:
 def read_yaml(txt: str) -> dict[str, Any]:
     """Parse YAML text and return as dictionary."""
     import yaml
+
     result = yaml.load(txt, yaml.Loader)
     return result if isinstance(result, dict) else {}
 
