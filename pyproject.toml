@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dtd-obsidian-tools"
-version = "0.1.0"
+version = "0.1.1"
 description = "Tools for working with Obsidian vaults, including community detection and graph analysis"
 readme = "README.md"
 license = {file = "LICENSE"}
