@@ -19,7 +19,6 @@ from .parser import ObsDoc, clean_links, extract_frontmatter, get_wikilinks, rea
 # sys.path.insert(0, str(script_dir))
 
 
-
 class ColorclassProcessor:
     """Processes Obsidian vault to add unique colorclass tags with NetworkX community detection."""
 
