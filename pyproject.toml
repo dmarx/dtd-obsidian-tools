@@ -24,7 +24,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,14 +31,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Office/Business :: Groupware",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "networkx>=3.0",
     "loguru>=0.7.0",
     "fire>=0.5.0",
     "omegaconf>=2.3.0",
     "pyyaml>=6.0",
-    "pathlib2; python_version<'3.4'",
+    "python-frontmatter>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -98,7 +97,7 @@ line_length = 88
 known_first_party = ["obsidian"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
