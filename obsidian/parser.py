@@ -23,9 +23,9 @@ def clean_links(wikilinks: list[str], collect_aliases: bool = False) -> list[str
             try:
                 link, alias = link.split("|")
             except:
-                #print(link)
-                #raise
-                continue # fuck it
+                # print(link)
+                # raise
+                continue  # fuck it
         outv.append(link.lower())
     return outv
 
