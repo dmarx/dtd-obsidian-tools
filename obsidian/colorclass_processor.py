@@ -380,7 +380,7 @@ class ColorclassProcessor:
                     if degree > max_degree:
                         max_degree = degree
                         representative_node = node
-                representative_node = representative_node.replace(' ','-')
+                representative_node = representative_node.replace(" ", "-")
 
                 colorclass_tag = (
                     f"{self.config.colorclass_prefix}/{representative_node}"
