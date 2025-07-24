@@ -1,27 +1,9 @@
 # obsidian/parser.py - Core document parsing utilities
 
 import re
+import frontmatter
 from pathlib import Path
 from typing import Any
-
-import yaml
-
-
-def read_yaml(txt: str) -> dict[str, Any]:
-    """Parse YAML text and return as dictionary."""
-    return yaml.load(txt, yaml.Loader)
-
-
-def extract_frontmatter(doc: str) -> tuple[dict[str, Any], str]:
-    """Extract YAML frontmatter and body from markdown document."""
-    front: dict[str, Any] = {}
-    body = doc
-    if doc.startswith("---"):
-        parts = doc.split("---", 2)
-        if len(parts) >= 3:
-            _, frontmatter_text, body = parts
-            front = read_yaml(frontmatter_text)
-    return front, body
 
 
 def get_wikilinks(text: str) -> list[str]:
@@ -36,9 +18,9 @@ def clean_links(wikilinks: list[str], collect_aliases: bool = False) -> list[str
         raise NotImplementedError
     outv = []
     for link in wikilinks:
-        if "|" in link:
+        if '|' in link:
             try:
-                link, alias = link.split("|")
+                link, alias = link.split('|')
             except:
                 print(link)
                 raise
@@ -48,15 +30,22 @@ def clean_links(wikilinks: list[str], collect_aliases: bool = False) -> list[str
 
 class ObsDoc:
     """Represents a single Obsidian document."""
-
+    
     def __init__(self, title: str, raw: str, fpath: Path | str | None = None):
         self.title = title
         self.raw = raw
-        self.frontmatter, self.body = extract_frontmatter(raw)
-        if "title" in self.frontmatter:
-            self.title = self.frontmatter["title"]
+        
+        # Parse with python-frontmatter
+        self.post = frontmatter.loads(raw)
+        self.frontmatter = self.post.metadata
+        self.body = self.post.content
+        
+        # Use frontmatter title if available
+        if 'title' in self.frontmatter:
+            self.title = self.frontmatter['title']
+            
         self.links = clean_links(get_wikilinks(self.body))
-        self.tags = self.frontmatter.get("tags", [])
+        self.tags = self.frontmatter.get('tags', [])
         self.fpath = Path(fpath) if fpath else None
 
     @property
@@ -65,12 +54,25 @@ class ObsDoc:
         return self.title.lower()
 
     @classmethod
-    def from_path(cls, fpath: Path | str) -> "ObsDoc":
+    def from_path(cls, fpath: Path | str) -> 'ObsDoc':
         """Create ObsDoc from file path."""
         fpath = Path(fpath)
-        with fpath.open() as f:
+        with fpath.open(encoding='utf-8') as f:
             try:
                 return cls(fpath.stem, f.read(), fpath=fpath)
             except Exception as e:
                 print(fpath)
                 raise e
+
+
+# Keep these for backwards compatibility
+def read_yaml(txt: str) -> dict[str, Any]:
+    """Parse YAML text and return as dictionary."""
+    import yaml
+    return yaml.load(txt, yaml.Loader)
+
+
+def extract_frontmatter(doc: str) -> tuple[dict[str, Any], str]:
+    """Extract YAML frontmatter and body from markdown document."""
+    post = frontmatter.loads(doc)
+    return post.metadata, post.content
