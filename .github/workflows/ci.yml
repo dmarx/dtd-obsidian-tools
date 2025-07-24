@@ -8,6 +8,9 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write  # Allow pushing formatted code back
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -17,6 +20,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
@@ -33,13 +39,21 @@ jobs:
         flake8 obsidian/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
         flake8 obsidian/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
 
-    - name: Check code formatting with black
+    - name: Format code with black
       run: |
-        black --check obsidian/ tests/
+        black obsidian/ tests/
 
-    - name: Check import sorting with isort
+    - name: Sort imports with isort
       run: |
-        isort --check-only obsidian/ tests/
+        isort obsidian/ tests/
+
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        git diff --staged --quiet || git commit -m "Auto-format code with black and isort"
+        git push || echo "No changes to push"
 
     - name: Type check with mypy
       run: |
