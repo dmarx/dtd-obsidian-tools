@@ -1,13 +1,16 @@
 # obsidian/colorclass_processor.py - Add unique colorclass tags with community detection
 
+import colorsys
+import json
 import random
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Tuple
 
 import fire
 import frontmatter
 import networkx as nx
+import seaborn as sns
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
@@ -41,7 +44,7 @@ def hsl_to_rgb_int(hsl: Tuple[float, float, float]) -> int:
     rgb_int = (r_int << 16) | (g_int << 8) | b_int
     return rgb_int
 
-def strided_palette(n: int, stride: int = 5) -> list[tuple[float, float, float]]:
+def strided_palette(n: int, stride: int = 5) -> list[int]:
     """Generate a strided color palette.
 
     Args:
@@ -49,7 +52,7 @@ def strided_palette(n: int, stride: int = 5) -> list[tuple[float, float, float]]
         stride: Step size for color generation.
 
     Returns:
-        List of strided color hex codes.
+        List of strided color RGB integers.
     """
     strided_wheel = []
     wheel_palette = sns.color_palette("hls", n)
@@ -63,7 +66,7 @@ def strided_palette(n: int, stride: int = 5) -> list[tuple[float, float, float]]
         hsl = wheel_palette.pop(i)
         rgb = hsl_to_rgb_int(hsl)
         strided_wheel.append(rgb)
-        i+=stride
+        i += stride
     return strided_wheel
 
 
@@ -91,6 +94,7 @@ class ColorclassProcessor:
                 "colorclass_prefix": "colorclass",
                 "dry_run": False,
                 "backup_originals": False,
+                "generate_graph_config": True,  # New option to control graph.json generation
                 "community_detection": {
                     "algorithm": "louvain",  # Default algorithm
                     "algorithm_params": {  # Parameters passed to the algorithm
@@ -185,8 +189,13 @@ class ColorclassProcessor:
             logger.warning("No community assignments generated")
             return {}
         
-        n = len(communities)
+        # Generate color palette for communities
+        unique_colorclasses = list(set(assignments.values()))
+        n = len(unique_colorclasses)
         palette = strided_palette(n)
+        
+        # Create colorclass to color mapping
+        colorclass_to_color = dict(zip(unique_colorclasses, palette))
 
         # Apply changes to files
         if not dry_run:
@@ -194,10 +203,103 @@ class ColorclassProcessor:
                 corpus, vault_path_obj, assignments
             )
             logger.success(f"Modified {modified_count} files")
+            
+            # Generate Obsidian graph configuration
+            if self.config.generate_graph_config:
+                self._generate_obsidian_graph_config(
+                    vault_path_obj, colorclass_to_color
+                )
         else:
             logger.info("Dry run complete - no files modified")
+            if self.config.generate_graph_config:
+                logger.info("Graph config would be generated with the following colorclasses:")
+                for colorclass, color in colorclass_to_color.items():
+                    logger.info(f"  {colorclass}: {color}")
 
         return assignments
+
+    def _generate_obsidian_graph_config(
+        self, vault_path: Path, colorclass_to_color: dict[str, int]
+    ) -> None:
+        """Generate or update .obsidian/graph.json with colorGroups."""
+        obsidian_dir = vault_path / ".obsidian"
+        graph_config_path = obsidian_dir / "graph.json"
+        
+        # Create .obsidian directory if it doesn't exist
+        obsidian_dir.mkdir(exist_ok=True)
+        
+        # Default graph configuration
+        default_config = {
+            "collapse-filter": False,
+            "search": "",
+            "showTags": False,
+            "showAttachments": False,
+            "hideUnresolved": True,
+            "showOrphans": False,
+            "collapse-color-groups": True,
+            "colorGroups": [],
+            "collapse-display": True,
+            "showArrow": False,
+            "textFadeMultiplier": -2,
+            "nodeSizeMultiplier": 0.64730224609375,
+            "lineSizeMultiplier": 0.152437337239583,
+            "collapse-forces": False,
+            "centerStrength": 0.059814453125,
+            "repelStrength": 15.6656901041667,
+            "linkStrength": 1,
+            "linkDistance": 30,
+            "scale": 0.02849801640727639,
+            "close": False
+        }
+        
+        # Load existing configuration if it exists
+        if graph_config_path.exists():
+            try:
+                with open(graph_config_path, 'r', encoding='utf-8') as f:
+                    existing_config = json.load(f)
+                # Merge with default config, preserving existing settings
+                config = {**default_config, **existing_config}
+            except (json.JSONDecodeError, FileNotFoundError) as e:
+                logger.warning(f"Could not load existing graph config: {e}, using defaults")
+                config = default_config
+        else:
+            config = default_config
+        
+        # Remove existing colorclass color groups to avoid duplicates
+        prefix = f"tag:#{self.config.colorclass_prefix}/"
+        existing_color_groups = config.get("colorGroups", [])
+        filtered_color_groups = [
+            group for group in existing_color_groups
+            if not group.get("query", "").strip().startswith(prefix)
+        ]
+        
+        # Generate new color groups for colorclasses
+        new_color_groups = []
+        for colorclass, rgb_color in colorclass_to_color.items():
+            # Remove the prefix to get just the tag name
+            tag_name = colorclass.replace(f"{self.config.colorclass_prefix}/", "")
+            color_group = {
+                "query": f"tag:#{self.config.colorclass_prefix}/{tag_name}",
+                "color": {
+                    "a": 1,
+                    "rgb": rgb_color
+                }
+            }
+            new_color_groups.append(color_group)
+        
+        # Combine filtered existing groups with new colorclass groups
+        config["colorGroups"] = filtered_color_groups + new_color_groups
+        
+        # Write the updated configuration
+        try:
+            with open(graph_config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            logger.success(f"Generated Obsidian graph config with {len(new_color_groups)} colorclass groups")
+            logger.info(f"Graph config saved to: {graph_config_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to write graph config: {e}")
 
     def _detect_communities(
         self, corpus: list["ObsDoc"], algorithm: str
@@ -221,7 +323,7 @@ class ColorclassProcessor:
 
         if len(subgraph.nodes) < 2:
             logger.warning("Graph too small for community detection")
-            return {}
+            return []
 
         # Convert to undirected for algorithms
         undirected_graph = subgraph.to_undirected()
@@ -231,7 +333,7 @@ class ColorclassProcessor:
 
         if not communities:
             logger.error("Community detection failed to produce results")
-            return {}
+            return []
         return communities, undirected_graph
 
     def _run_networkx_algorithm(
