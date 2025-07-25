@@ -19,6 +19,53 @@ else:
 
 from .graph import build_graph, find_candidates, get_link_statistics, load_corpus
 
+def hsl_to_rgb_int(hsl: Tuple[float, float, float]) -> int:
+    """
+    Convert HSL color to RGB integer format used by Obsidian.
+    
+    Args:
+        hsl: Tuple of (hue, saturation, lightness) values between 0-1
+        
+    Returns:
+        RGB integer value
+    """
+    h, s, l = hsl
+    r, g, b = colorsys.hls_to_rgb(h, l, s)  # Note: colorsys uses HLS order
+    
+    # Convert to 0-255 range and combine into single integer
+    r_int = int(r * 255)
+    g_int = int(g * 255)
+    b_int = int(b * 255)
+    
+    # Combine RGB values into single integer (format: 0xRRGGBB)
+    rgb_int = (r_int << 16) | (g_int << 8) | b_int
+    return rgb_int
+
+def strided_palette(n: int, stride: int = 5) -> list[tuple[float, float, float]]:
+    """Generate a strided color palette.
+
+    Args:
+        n: Number of colors to generate.
+        stride: Step size for color generation.
+
+    Returns:
+        List of strided color hex codes.
+    """
+    strided_wheel = []
+    wheel_palette = sns.color_palette("hls", n)
+    i = 0
+    while True:
+        if not wheel_palette:
+            break
+        if i > len(wheel_palette)-1:
+            i -= len(wheel_palette)
+            continue
+        hsl = wheel_palette.pop(i)
+        rgb = hsl_to_rgb_int(hsl)
+        strided_wheel.append(rgb)
+        i+=stride
+    return strided_wheel
+
 
 class ColorclassProcessor:
     """Processes Obsidian vault to add unique colorclass tags with NetworkX community detection."""
@@ -131,11 +178,15 @@ class ColorclassProcessor:
                 corpus.append(doc)
 
         # Run community detection on all documents
-        assignments = self._detect_communities(corpus, algorithm)
+        communities, undirected_graph = self._detect_communities(corpus, algorithm)
+        assignments = self._process_communities(communities, undirected_graph)
 
         if not assignments:
             logger.warning("No community assignments generated")
             return {}
+        
+        n = len(communities)
+        palette = strided_palette(n)
 
         # Apply changes to files
         if not dry_run:
@@ -150,7 +201,7 @@ class ColorclassProcessor:
 
     def _detect_communities(
         self, corpus: list["ObsDoc"], algorithm: str
-    ) -> dict[str, str]:
+    ) -> tuple[list[set[str]], nx.Graph]:
         """Use NetworkX community detection to assign colorclass tags."""
         logger.info(f"Starting community detection with {algorithm}...")
 
@@ -181,11 +232,7 @@ class ColorclassProcessor:
         if not communities:
             logger.error("Community detection failed to produce results")
             return {}
-
-        # Process community assignments
-        assignments = self._process_communities(communities, undirected_graph)
-
-        return assignments
+        return communities, undirected_graph
 
     def _run_networkx_algorithm(
         self, graph: nx.Graph, algorithm: str
