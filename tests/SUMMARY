@@ -1,0 +1,413 @@
+---
+File: tests/test_colorclass_processor.py
+---
+# tests/test_colorclass_processor.py - Test colorclass processor functionality
+
+import json
+import tempfile
+from pathlib import Path
+
+import pytest
+from obsidian.colorclass_processor import ColorclassProcessor, hsl_to_rgb_int, strided_palette
+from obsidian.parser import ObsDoc
+
+
+def test_hsl_to_rgb_int():
+    """Test HSL to RGB integer conversion."""
+    # Red (hue=0, sat=1, light=0.5)
+    rgb = hsl_to_rgb_int((0.0, 1.0, 0.5))
+    assert rgb == 0xFF0000  # Red
+    
+    # Blue (hue=0.67, sat=1, light=0.5)
+    rgb = hsl_to_rgb_int((0.67, 1.0, 0.5))
+    assert isinstance(rgb, int)
+    assert 0 <= rgb <= 0xFFFFFF
+
+
+def test_strided_palette():
+    """Test strided color palette generation."""
+    colors = strided_palette(5)
+    assert len(colors) == 5
+    assert all(isinstance(c, int) for c in colors)
+    assert all(0 <= c <= 0xFFFFFF for c in colors)
+
+
+def test_processor_init():
+    """Test processor initialization."""
+    processor = ColorclassProcessor()
+    assert processor.config.colorclass_prefix == "colorclass"
+    assert processor.config.dry_run is False
+
+
+def test_list_algorithms():
+    """Test algorithm listing."""
+    processor = ColorclassProcessor()
+    algorithms = processor.list_algorithms()
+    assert isinstance(algorithms, list)
+    assert "louvain" in algorithms  # Should be available in most NetworkX versions
+
+
+def test_process_vault_dry_run():
+    """Test vault processing in dry run mode."""
+    processor = ColorclassProcessor()
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault_path = Path(tmpdir)
+        
+        # Create test documents
+        (vault_path / "doc1.md").write_text("""---
+title: Document 1
+tags: [test]
+---
+# Document 1
+Links to [[Document 2]].""")
+        
+        (vault_path / "doc2.md").write_text("""---
+title: Document 2
+tags: [test]
+---
+# Document 2
+Links to [[Document 1]].""")
+        
+        # Process in dry run mode
+        assignments = processor.process_vault(str(vault_path), dry_run=True)
+        
+        # Should return assignments without modifying files
+        assert isinstance(assignments, dict)
+        # Original files should be unchanged
+        content1 = (vault_path / "doc1.md").read_text()
+        assert "colorclass/" not in content1
+
+
+def test_analyze_community_structure():
+    """Test community structure analysis."""
+    processor = ColorclassProcessor()
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault_path = Path(tmpdir)
+        
+        # Create minimal test vault
+        (vault_path / "doc1.md").write_text("# Doc1\nLinks to [[doc2]].")
+        (vault_path / "doc2.md").write_text("# Doc2\nLinks to [[doc1]].")
+        
+        analysis = processor.analyze_community_structure(str(vault_path))
+        
+        assert "total_documents" in analysis
+        assert "clustered_documents" in analysis
+        assert "total_communities" in analysis
+        assert analysis["total_documents"] == 2
+        assert analysis["clustered_documents"] == 2
+
+
+def test_config_loading():
+    """Test configuration loading with custom config."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_path = Path(tmpdir) / "config.yml"
+        config_path.write_text("""
+colorclass_prefix: "custom"
+dry_run: true
+community_detection:
+  algorithm: "greedy_modularity"
+  min_community_size: 3
+""")
+        
+        processor = ColorclassProcessor(str(config_path))
+        assert processor.config.colorclass_prefix == "custom"
+        assert processor.config.dry_run is True
+        assert processor.config.community_detection.algorithm == "greedy_modularity"
+        assert processor.config.community_detection.min_community_size == 3
+
+
+---
+File: tests/test_graph.py
+---
+# tests/test_graph.py - Test graph construction functionality
+
+import networkx as nx
+import pytest
+from pathlib import Path
+from obsidian.graph import build_graph, get_link_statistics, find_candidates
+from obsidian.parser import ObsDoc
+
+
+def test_build_graph_empty():
+    """Test graph building with empty corpus."""
+    corpus = []
+    graph = build_graph(corpus)
+    assert len(graph.nodes) == 0
+    assert len(graph.edges) == 0
+
+
+def test_build_graph_single_doc():
+    """Test graph with single document with no links."""
+    doc = ObsDoc("test", "# Test\nNo links here.")
+    corpus = [doc]
+    graph = build_graph(corpus)
+    
+    # No links means no nodes are added to the graph
+    assert len(graph.nodes) == 0
+    assert len(graph.edges) == 0
+
+
+def test_build_graph_with_links():
+    """Test graph with linked documents."""
+    doc1 = ObsDoc("doc1", "# Doc1\nLinks to [[doc2]] and [[missing]].")
+    doc2 = ObsDoc("doc2", "# Doc2\nLinks to [[doc1]].")
+    corpus = [doc1, doc2]
+    
+    graph = build_graph(corpus)
+    
+    # Should have 3 nodes: doc1, doc2, missing (phantom)
+    assert len(graph.nodes) == 3
+    assert "doc1" in graph.nodes
+    assert "doc2" in graph.nodes
+    assert "missing" in graph.nodes
+    
+    # Check existence attributes
+    assert graph.nodes["doc1"]["exists"] is True
+    assert graph.nodes["doc2"]["exists"] is True
+    assert graph.nodes["missing"]["exists"] is False
+    
+    # Check edges
+    assert graph.has_edge("doc1", "doc2")
+    assert graph.has_edge("doc1", "missing")
+    assert graph.has_edge("doc2", "doc1")
+
+
+def test_get_link_statistics():
+    """Test link and tag statistics calculation."""
+    doc1 = ObsDoc("doc1", """---
+tags: [python, test]
+---
+# Doc1
+Links to [[doc2]].""")
+    
+    doc2 = ObsDoc("doc2", """---
+tags: [python, example]
+---
+# Doc2
+Links to [[doc1]] and [[doc2]].""")
+    
+    corpus = [doc1, doc2]
+    tags, indegree = get_link_statistics(corpus)
+    
+    # Tag counts
+    assert tags["python"] == 2
+    assert tags["test"] == 1
+    assert tags["example"] == 1
+    
+    # Link counts (indegree)
+    assert indegree["doc2"] == 2  # linked from doc1 and doc2
+    assert indegree["doc1"] == 1  # linked from doc2
+
+
+def test_find_candidates():
+    """Test finding missing documents."""
+    doc1 = ObsDoc("existing", "# Existing\nLinks to [[missing1]] and [[missing2]].")
+    corpus = [doc1]
+    
+    graph = build_graph(corpus)
+    candidates = find_candidates(graph)
+    
+    assert "missing1" in candidates
+    assert "missing2" in candidates
+    assert "existing" not in candidates
+    
+    # Each missing doc should have degree 1
+    assert candidates["missing1"] == 1
+    assert candidates["missing2"] == 1
+
+
+---
+File: tests/test_integration.py
+---
+# tests/test_integration.py - Basic integration tests
+
+import tempfile
+from pathlib import Path
+
+import pytest
+from obsidian import load_corpus, build_graph, ObsDoc
+
+
+def test_load_corpus_empty_directory():
+    """Test loading corpus from empty directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault_path = Path(tmpdir)
+        corpus = load_corpus(vault_path)
+        assert len(corpus) == 0
+
+
+def test_load_corpus_with_files():
+    """Test loading corpus with markdown files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault_path = Path(tmpdir)
+        
+        # Create test files
+        (vault_path / "doc1.md").write_text("# Document 1")
+        (vault_path / "doc2.md").write_text("# Document 2")
+        (vault_path / "not_markdown.txt").write_text("Not a markdown file")
+        
+        corpus = load_corpus(vault_path)
+        
+        # Should only load .md files
+        assert len(corpus) == 2
+        assert all(isinstance(doc, ObsDoc) for doc in corpus)
+        titles = [doc.title for doc in corpus]
+        assert "doc1" in titles
+        assert "doc2" in titles
+
+
+def test_full_workflow():
+    """Test complete workflow from corpus loading to graph building."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault_path = Path(tmpdir)
+        
+        # Create interconnected documents
+        (vault_path / "home.md").write_text("""---
+title: Home Page
+tags: [index, main]
+---
+# Welcome
+See [[Projects]] and [[Ideas]].""")
+        
+        (vault_path / "projects.md").write_text("""---
+title: Projects
+tags: [work]
+---
+# My Projects
+Back to [[Home Page]].""")
+        
+        (vault_path / "ideas.md").write_text("""---
+title: Ideas
+tags: [creative, brainstorm]
+---
+# Random Ideas
+Link to [[Projects]] and [[Home Page]].""")
+        
+        # Load and process
+        corpus = load_corpus(vault_path)
+        graph = build_graph(corpus)
+        
+        # Verify corpus
+        assert len(corpus) == 3
+        
+        # Verify graph structure
+        assert len(graph.nodes) >= 3
+        assert "home page" in graph.nodes
+        assert "projects" in graph.nodes
+        assert "ideas" in graph.nodes
+        
+        # Verify connections
+        assert graph.has_edge("home page", "projects")
+        assert graph.has_edge("home page", "ideas")
+        assert graph.has_edge("projects", "home page")
+        assert graph.has_edge("ideas", "projects")
+        assert graph.has_edge("ideas", "home page")
+        
+        # Verify node attributes
+        for title in ["home page", "projects", "ideas"]:
+            assert graph.nodes[title]["exists"] is True
+
+
+---
+File: tests/test_parser.py
+---
+# tests/test_parser.py - Test core parsing functionality
+
+from pathlib import Path
+
+import frontmatter
+import pytest
+
+from obsidian.parser import ObsDoc, clean_links, extract_frontmatter, get_wikilinks
+
+
+def test_extract_frontmatter():
+    """Test YAML frontmatter extraction using python-frontmatter."""
+    doc = """---
+title: Test Document
+tags: [tag1, tag2]
+---
+
+# Content here
+Some [[link]] content."""
+
+    metadata, body = extract_frontmatter(doc)
+    assert metadata["title"] == "Test Document"
+    assert metadata["tags"] == ["tag1", "tag2"]
+    assert "# Content here" in body
+
+
+def test_extract_frontmatter_no_frontmatter():
+    """Test document without frontmatter."""
+    doc = "# Just content\nNo frontmatter here."
+    metadata, body = extract_frontmatter(doc)
+    assert metadata == {}
+    assert body == doc
+
+
+def test_get_wikilinks():
+    """Test wikilink extraction."""
+    text = "Here are some [[Link One]] and [[Link Two|Alias]] links."
+    links = get_wikilinks(text)
+    assert links == ["Link One", "Link Two|Alias"]
+
+
+def test_clean_links():
+    """Test link cleaning and canonicalization."""
+    links = ["Link One", "Link Two|Alias", "UPPERCASE"]
+    cleaned = clean_links(links)
+    assert cleaned == ["link one", "link two", "uppercase"]
+
+
+def test_obsdoc_creation():
+    """Test ObsDoc creation and properties."""
+    content = """---
+title: My Document
+tags: [test, example]
+---
+
+# My Document
+This has a [[wikilink]] and [[Another Link|alias]].
+"""
+
+    doc = ObsDoc("test-doc", content)
+    assert doc.title == "My Document"  # Should use frontmatter title
+    assert doc.tags == ["test", "example"]
+    assert doc.links == ["wikilink", "another link"]
+    assert doc.node_name == "my document"
+
+
+def test_obsdoc_no_frontmatter():
+    """Test ObsDoc with no frontmatter."""
+    content = "# Simple Doc\nJust content with [[a link]]."
+    doc = ObsDoc("simple-doc", content)
+    assert doc.title == "simple-doc"
+    assert doc.tags == []
+    assert doc.links == ["a link"]
+
+
+def test_frontmatter_roundtrip():
+    """Test that frontmatter can be read and written back correctly."""
+    content = """---
+title: Test
+tags: [one, two]
+date: 2025-01-01
+---
+
+Body content here."""
+
+    # Parse with frontmatter
+    post = frontmatter.loads(content)
+    assert post.metadata["title"] == "Test"
+    assert post.metadata["tags"] == ["one", "two"]
+    assert post.content.strip() == "Body content here."
+
+    # Roundtrip test
+    reconstructed = frontmatter.dumps(post)
+    post2 = frontmatter.loads(reconstructed)
+    assert post2.metadata == post.metadata
+    assert post2.content == post.content
+
+
