@@ -22,27 +22,29 @@ else:
 
 from .graph import build_graph, find_candidates, get_link_statistics, load_corpus
 
+
 def hsl_to_rgb_int(hsl: Tuple[float, float, float]) -> int:
     """
     Convert HSL color to RGB integer format used by Obsidian.
-    
+
     Args:
         hsl: Tuple of (hue, saturation, lightness) values between 0-1
-        
+
     Returns:
         RGB integer value
     """
     h, s, l = hsl
     r, g, b = colorsys.hls_to_rgb(h, l, s)  # Note: colorsys uses HLS order
-    
+
     # Convert to 0-255 range and combine into single integer
     r_int = int(r * 255)
     g_int = int(g * 255)
     b_int = int(b * 255)
-    
+
     # Combine RGB values into single integer (format: 0xRRGGBB)
     rgb_int = (r_int << 16) | (g_int << 8) | b_int
     return rgb_int
+
 
 def strided_palette(n: int, stride: int = 5) -> list[int]:
     """Generate a strided color palette.
@@ -60,7 +62,7 @@ def strided_palette(n: int, stride: int = 5) -> list[int]:
     while True:
         if not wheel_palette:
             break
-        if i > len(wheel_palette)-1:
+        if i > len(wheel_palette) - 1:
             i -= len(wheel_palette)
             continue
         hsl = wheel_palette.pop(i)
@@ -144,7 +146,7 @@ class ColorclassProcessor:
         vault_path: str,
         dry_run: bool | None = None,
         algorithm: str | None = None,
-        #generate_graph_config: bool | None = True,
+        # generate_graph_config: bool | None = True,
     ) -> dict[str, str]:
         """Process vault to add colorclass tags using community detection.
 
@@ -192,12 +194,12 @@ class ColorclassProcessor:
         if not assignments:
             logger.warning("No community assignments generated")
             return {}
-        
+
         # Generate color palette for communities
         unique_colorclasses = list(set(assignments.values()))
         n = len(unique_colorclasses)
         palette = strided_palette(n)
-        
+
         # Create colorclass to color mapping
         colorclass_to_color = dict(zip(unique_colorclasses, palette))
 
@@ -207,7 +209,7 @@ class ColorclassProcessor:
                 corpus, vault_path_obj, assignments
             )
             logger.success(f"Modified {modified_count} files")
-            
+
             # Generate Obsidian graph configuration
             if self.config.generate_graph_config:
                 self._generate_obsidian_graph_config(
@@ -216,7 +218,9 @@ class ColorclassProcessor:
         else:
             logger.info("Dry run complete - no files modified")
             if self.config.generate_graph_config:
-                logger.info("Graph config would be generated with the following colorclasses:")
+                logger.info(
+                    "Graph config would be generated with the following colorclasses:"
+                )
                 for colorclass, color in colorclass_to_color.items():
                     logger.info(f"  {colorclass}: {color}")
 
@@ -228,10 +232,10 @@ class ColorclassProcessor:
         """Generate or update .obsidian/graph.json with colorGroups."""
         obsidian_dir = vault_path / ".obsidian"
         graph_config_path = obsidian_dir / "graph.json"
-        
+
         # Create .obsidian directory if it doesn't exist
         obsidian_dir.mkdir(exist_ok=True)
-        
+
         # Default graph configuration
         default_config = {
             "collapse-filter": False,
@@ -253,30 +257,33 @@ class ColorclassProcessor:
             "linkStrength": 1,
             "linkDistance": 30,
             "scale": 0.02849801640727639,
-            "close": False
+            "close": False,
         }
-        
+
         # Load existing configuration if it exists
         if graph_config_path.exists():
             try:
-                with open(graph_config_path, 'r', encoding='utf-8') as f:
+                with open(graph_config_path, "r", encoding="utf-8") as f:
                     existing_config = json.load(f)
                 # Merge with default config, preserving existing settings
                 config = {**default_config, **existing_config}
             except (json.JSONDecodeError, FileNotFoundError) as e:
-                logger.warning(f"Could not load existing graph config: {e}, using defaults")
+                logger.warning(
+                    f"Could not load existing graph config: {e}, using defaults"
+                )
                 config = default_config
         else:
             config = default_config
-        
+
         # Remove existing colorclass color groups to avoid duplicates
         prefix = f"tag:#{self.config.colorclass_prefix}/"
         existing_color_groups = config.get("colorGroups", [])
         filtered_color_groups = [
-            group for group in existing_color_groups
+            group
+            for group in existing_color_groups
             if not group.get("query", "").strip().startswith(prefix)
         ]
-        
+
         # Generate new color groups for colorclasses
         new_color_groups = []
         for colorclass, rgb_color in colorclass_to_color.items():
@@ -284,24 +291,23 @@ class ColorclassProcessor:
             tag_name = colorclass.replace(f"{self.config.colorclass_prefix}/", "")
             color_group = {
                 "query": f"tag:#{self.config.colorclass_prefix}/{tag_name}",
-                "color": {
-                    "a": 1,
-                    "rgb": rgb_color
-                }
+                "color": {"a": 1, "rgb": rgb_color},
             }
             new_color_groups.append(color_group)
-        
+
         # Combine filtered existing groups with new colorclass groups
         config["colorGroups"] = filtered_color_groups + new_color_groups
-        
+
         # Write the updated configuration
         try:
-            with open(graph_config_path, 'w', encoding='utf-8') as f:
+            with open(graph_config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
-            
-            logger.success(f"Generated Obsidian graph config with {len(new_color_groups)} colorclass groups")
+
+            logger.success(
+                f"Generated Obsidian graph config with {len(new_color_groups)} colorclass groups"
+            )
             logger.info(f"Graph config saved to: {graph_config_path}")
-            
+
         except Exception as e:
             logger.error(f"Failed to write graph config: {e}")
 
