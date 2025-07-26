@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dtd-obsidian-tools"
-version = "0.1.1"
+version = "0.1.2"
 description = "Tools for working with Obsidian vaults, including community detection and graph analysis"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -39,6 +39,7 @@ dependencies = [
     "omegaconf>=2.3.0",
     "pyyaml>=6.0",
     "python-frontmatter>=1.0.0",
+    "seaborn>=0.11.0"
 ]
 
 [project.optional-dependencies]
