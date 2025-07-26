@@ -39,6 +39,7 @@ dependencies = [
     "omegaconf>=2.3.0",
     "pyyaml>=6.0",
     "python-frontmatter>=1.0.0",
+    "seaborn>=0.11.0"
 ]
 
 [project.optional-dependencies]

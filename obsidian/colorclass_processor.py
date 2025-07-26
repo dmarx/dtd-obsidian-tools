@@ -140,7 +140,11 @@ class ColorclassProcessor:
         return available
 
     def process_vault(
-        self, vault_path: str, dry_run: bool | None = None, algorithm: str | None = None
+        self,
+        vault_path: str,
+        dry_run: bool | None = None,
+        algorithm: str | None = None,
+        #generate_graph_config: bool | None = True,
     ) -> dict[str, str]:
         """Process vault to add colorclass tags using community detection.
 
